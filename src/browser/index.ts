@@ -91,32 +91,34 @@ const makeBrowserService = Effect.gen(function* () {
 						Effect.gen(function* () {
 							yield* Effect.logInfo(`Navigating to ${url}`)
 							
-							try {
-								const result = yield* CDPCommands.navigateToUrl(url, sessionId)
-								yield* Effect.logInfo(`Navigation completed, frameId: ${result.frameId}`)
-							} catch (error) {
-								yield* Effect.fail(new BrowserSessionError({
-									message: `Navigation to ${url} failed`,
-									sessionId,
-									cause: error
-								}))
-							}
+							const result = yield* CDPCommands.navigateToUrl(url, sessionId).pipe(
+								Effect.catchAll((error) =>
+									Effect.fail(new BrowserSessionError({
+										message: `Navigation to ${url} failed`,
+										sessionId,
+										cause: error
+									}))
+								)
+							)
+							
+							yield* Effect.logInfo(`Navigation completed, frameId: ${result.frameId}`)
 						}),
 					takeScreenshot: () =>
 						Effect.gen(function* () {
 							yield* Effect.logInfo('Taking screenshot')
 							
-							try {
-								const result = yield* CDPCommands.captureScreenshot(sessionId)
-								yield* Effect.logInfo('Screenshot captured successfully')
-								return `data:image/png;base64,${result.data}`
-							} catch (error) {
-								yield* Effect.fail(new BrowserSessionError({
-									message: 'Screenshot capture failed',
-									sessionId,
-									cause: error
-								}))
-							}
+							const result = yield* CDPCommands.captureScreenshot(sessionId).pipe(
+								Effect.mapError((error) =>
+									new BrowserSessionError({
+										message: 'Screenshot capture failed',
+										sessionId,
+										cause: error
+									})
+								)
+							)
+							
+							yield* Effect.logInfo('Screenshot captured successfully')
+							return `data:image/png;base64,${result.data}`
 						}),
 					close: () =>
 						Effect.gen(function* () {
