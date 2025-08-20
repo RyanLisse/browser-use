@@ -453,8 +453,32 @@ const makeTabManagementService = Effect.gen(function* () {
 			
 			yield* Effect.logDebug(`Going back in tab: ${tabId}`)
 			
-			// Navigate back
-			yield* cdp.send('Page.navigateToHistoryEntry', { entryId: -1 }, tab.sessionId).pipe(
+			// Get navigation history to find the previous entry
+			const historyResult = yield* cdp.send('Page.getNavigationHistory', {}, tab.sessionId).pipe(
+				Effect.mapError((error) =>
+					new BrowserSessionError({
+						message: `Failed to get navigation history for tab: ${tabId}`,
+						cause: error
+					})
+				)
+			)
+			
+			const history = historyResult.result as {
+				currentIndex: number
+				entries: Array<{ id: number; url: string; title: string }>
+			}
+			
+			const previousIndex = history.currentIndex - 1
+			if (previousIndex < 0 || previousIndex >= history.entries.length) {
+				yield* Effect.fail(new BrowserSessionError({
+					message: `No previous history entry available for tab: ${tabId}`
+				}))
+			}
+			
+			const previousEntry = history.entries[previousIndex]
+			
+			// Navigate back using actual history entry ID
+			yield* cdp.send('Page.navigateToHistoryEntry', { entryId: previousEntry.id }, tab.sessionId).pipe(
 				Effect.mapError((error) =>
 					new BrowserSessionError({
 						message: `Failed to go back in tab: ${tabId}`,
@@ -485,8 +509,32 @@ const makeTabManagementService = Effect.gen(function* () {
 			
 			yield* Effect.logDebug(`Going forward in tab: ${tabId}`)
 			
-			// Navigate forward
-			yield* cdp.send('Page.navigateToHistoryEntry', { entryId: 1 }, tab.sessionId).pipe(
+			// Get navigation history to find the next entry
+			const historyResult = yield* cdp.send('Page.getNavigationHistory', {}, tab.sessionId).pipe(
+				Effect.mapError((error) =>
+					new BrowserSessionError({
+						message: `Failed to get navigation history for tab: ${tabId}`,
+						cause: error
+					})
+				)
+			)
+			
+			const history = historyResult.result as {
+				currentIndex: number
+				entries: Array<{ id: number; url: string; title: string }>
+			}
+			
+			const nextIndex = history.currentIndex + 1
+			if (nextIndex < 0 || nextIndex >= history.entries.length) {
+				yield* Effect.fail(new BrowserSessionError({
+					message: `No next history entry available for tab: ${tabId}`
+				}))
+			}
+			
+			const nextEntry = history.entries[nextIndex]
+			
+			// Navigate forward using actual history entry ID
+			yield* cdp.send('Page.navigateToHistoryEntry', { entryId: nextEntry.id }, tab.sessionId).pipe(
 				Effect.mapError((error) =>
 					new BrowserSessionError({
 						message: `Failed to go forward in tab: ${tabId}`,

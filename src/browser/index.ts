@@ -470,3 +470,8 @@ export const BrowserUseLive = Layer.effect(
  * Export the AppConfig service tag for use in tests
  */
 export { AppConfigService }
+
+/**
+ * Export DOMServiceLive for use in tests
+ */
+export { DOMServiceLive }

@@ -159,7 +159,12 @@ const makeWasmOptimizationService = Effect.gen(function* () {
 				// JavaScript fallback
 				yield* Effect.logDebug('WASM not available, using JavaScript fallback for text search')
 				
-				const regex = new RegExp(text, 'gi')
+				// Escape special regex characters to prevent ReDoS attacks
+				const escapeRegexChars = (str: string): string =>
+					str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+				
+				const escapedText = escapeRegexChars(text)
+				const regex = new RegExp(escapedText, 'gi')
 				const matches: string[] = []
 				const positions: { start: number; end: number }[] = []
 				
@@ -305,10 +310,38 @@ export const createWasmOptimizationServiceLive = (config: WasmConfig = defaultWa
 		Effect.gen(function* () {
 			const service = yield* makeWasmOptimizationService
 			
-			// Override isEnabled based on configuration
+			// Override methods based on configuration
 			return {
 				...service,
-				isEnabled: () => Effect.succeed(config.enabled)
+				isEnabled: () => Effect.succeed(config.enabled),
+				
+				optimizeQuery: (selector: string, elements: readonly DOMElement[]) =>
+					config.enableTreeTraversal !== false 
+						? service.optimizeQuery(selector, elements)
+						: Effect.succeed({
+							elements,
+							executionTime: 0,
+							optimized: false
+						}),
+				
+				optimizeTextSearch: (text: string, content: string) =>
+					config.enableTextProcessing !== false
+						? service.optimizeTextSearch(text, content)
+						: Effect.succeed({
+							matches: [],
+							positions: [],
+							optimized: false
+						}),
+				
+				optimizeGeometricCalculations: (element: DOMElement) =>
+					config.enableGeometricCalculations !== false
+						? service.optimizeGeometricCalculations(element)
+						: Effect.succeed({
+							center: { x: 0, y: 0 },
+							area: 0,
+							visible: false,
+							optimized: false
+						})
 			}
 		})
 	)
