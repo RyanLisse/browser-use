@@ -4,8 +4,8 @@
 
 import { Context, Effect, Layer } from 'effect'
 import type { AppConfig, BrowserConfig } from '../config'
-import { BrowserSessionError, CDPConnectionError, CDPCommandError } from '../errors'
-import { CDPClient, CDPCommands } from '../cdp'
+import { BrowserSessionError } from '../errors'
+import { CDPClient, CDPClientLive, CDPCommands } from '../cdp'
 
 /**
  * Browser session interface matching the implementation guide API
@@ -63,83 +63,78 @@ const AppConfigService = Context.GenericTag<AppConfig>('AppConfig')
  * Enhanced browser service implementation with real CDP integration (Epic 1.3)
  */
 const makeBrowserService = Effect.gen(function* () {
-	const config = yield* AppConfigService
 	const cdp = yield* CDPClient
 	
 	const sessions = new Map<string, BrowserSession>()
 	
-	const createSession = (sessionConfig?: Partial<BrowserConfig>): Effect.Effect<BrowserSession, BrowserSessionError> =>
+	const createSession = (_sessionConfig?: Partial<BrowserConfig>): Effect.Effect<BrowserSession, BrowserSessionError> =>
 		Effect.gen(function* () {
-			const finalConfig = { ...config.browser, ...sessionConfig }
 			const sessionId = crypto.randomUUID()
 			
-			try {
-				// Ensure CDP is connected
-				const isConnected = yield* cdp.isConnected()
-				if (!isConnected) {
-					yield* cdp.connect()
-				}
-				
-				// Enable required CDP domains
-				yield* CDPCommands.enableRuntime(sessionId)
-				yield* CDPCommands.enablePage(sessionId)
-				
-				// Real session implementation using CDP
-				const session: BrowserSession = {
-					sessionId,
-					navigate: (url: string) =>
-						Effect.gen(function* () {
-							yield* Effect.logInfo(`Navigating to ${url}`)
-							
-							const result = yield* CDPCommands.navigateToUrl(url, sessionId).pipe(
-								Effect.catchAll((error) =>
-									Effect.fail(new BrowserSessionError({
-										message: `Navigation to ${url} failed`,
-										sessionId,
-										cause: error
-									}))
-								)
-							)
-							
-							yield* Effect.logInfo(`Navigation completed, frameId: ${result.frameId}`)
-						}),
-					takeScreenshot: () =>
-						Effect.gen(function* () {
-							yield* Effect.logInfo('Taking screenshot')
-							
-							const result = yield* CDPCommands.captureScreenshot(sessionId).pipe(
-								Effect.mapError((error) =>
-									new BrowserSessionError({
-										message: 'Screenshot capture failed',
-										sessionId,
-										cause: error
-									})
-								)
-							)
-							
-							yield* Effect.logInfo('Screenshot captured successfully')
-							return `data:image/png;base64,${result.data}`
-						}),
-					close: () =>
-						Effect.gen(function* () {
-							yield* Effect.logInfo('Closing browser session')
-							sessions.delete(sessionId)
-							yield* Effect.logInfo(`Session ${sessionId} closed`)
-						})
-				}
-				
-				sessions.set(sessionId, session)
-				yield* Effect.logInfo(`Created browser session with ID: ${sessionId}`)
-				
-				return session
-				
-			} catch (error) {
-				yield* Effect.fail(new BrowserSessionError({
-					message: 'Failed to create browser session',
-					sessionId,
-					cause: error
-				}))
+			// Ensure CDP is connected
+			const isConnected = yield* cdp.isConnected()
+			if (!isConnected) {
+				yield* cdp.connect()
 			}
+			
+			// Enable required CDP domains
+			yield* CDPCommands.enableRuntime(sessionId).pipe(
+				Effect.provide(Layer.succeed(CDPClient, cdp))
+			)
+			yield* CDPCommands.enablePage(sessionId).pipe(
+				Effect.provide(Layer.succeed(CDPClient, cdp))
+			)
+			
+			// Real session implementation using CDP
+			const session: BrowserSession = {
+				sessionId,
+				navigate: (url: string) =>
+					Effect.gen(function* () {
+						yield* Effect.logInfo(`Navigating to ${url}`)
+						
+						const result = yield* CDPCommands.navigateToUrl(url, sessionId).pipe(
+							Effect.provide(Layer.succeed(CDPClient, cdp)),
+							Effect.catchAll((error) =>
+								Effect.fail(new BrowserSessionError({
+									message: `Navigation to ${url} failed`,
+									sessionId,
+									cause: error
+								}))
+							)
+						)
+						
+						yield* Effect.logInfo(`Navigation completed, frameId: ${result.frameId}`)
+					}),
+				takeScreenshot: () =>
+					Effect.gen(function* () {
+						yield* Effect.logInfo('Taking screenshot')
+						
+						const result = yield* CDPCommands.captureScreenshot(sessionId).pipe(
+							Effect.provide(Layer.succeed(CDPClient, cdp)),
+							Effect.mapError((error) =>
+								new BrowserSessionError({
+									message: 'Screenshot capture failed',
+									sessionId,
+									cause: error
+								})
+							)
+						)
+						
+						yield* Effect.logInfo('Screenshot captured successfully')
+						return `data:image/png;base64,${result.data}`
+					}),
+				close: () =>
+					Effect.gen(function* () {
+						yield* Effect.logInfo('Closing browser session')
+						sessions.delete(sessionId)
+						yield* Effect.logInfo(`Session ${sessionId} closed`)
+					})
+			}
+			
+			sessions.set(sessionId, session)
+			yield* Effect.logInfo(`Created browser session with ID: ${sessionId}`)
+			
+			return session
 		}).pipe(
 			Effect.catchTags({
 				CDPConnectionError: (error) =>
@@ -164,11 +159,12 @@ const makeBrowserService = Effect.gen(function* () {
 
 /**
  * Browser service layer with CDP dependency
+ * Requires: AppConfigService and CDPClient
  */
 export const BrowserServiceLive = Layer.effect(BrowserService, makeBrowserService)
 
 /**
- * BrowserUse layer that provides the main API
+ * BrowserUse layer that provides the main API with all required dependencies
  */
 export const BrowserUseLive = Layer.effect(
 	BrowserUse,
@@ -180,7 +176,10 @@ export const BrowserUseLive = Layer.effect(
 		}
 		return service
 	})
-).pipe(Layer.provide(BrowserServiceLive))
+).pipe(
+	Layer.provide(BrowserServiceLive),
+	Layer.provide(CDPClientLive)
+)
 
 /**
  * Export the AppConfig service tag for use in tests

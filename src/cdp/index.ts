@@ -3,7 +3,7 @@
  */
 
 import { Context, Effect, Layer, Schedule } from 'effect'
-import * as CDP from 'chrome-remote-interface'
+import CDP from 'chrome-remote-interface'
 import { CDPConnectionError, CDPCommandError } from '../errors'
 import type { CDPConfig } from '../config'
 
@@ -147,34 +147,26 @@ const makeCDPClient = Effect.gen(function* () {
 				}))
 			}
 
-			try {
-				yield* Effect.logDebug(`Sending CDP command: ${method}`, { params, sessionId })
+			yield* Effect.logDebug(`Sending CDP command: ${method}`, { params, sessionId })
 
-				const commandParams = sessionId 
-					? { ...params, sessionId }
-					: params
+			const commandParams = sessionId 
+				? { ...params, sessionId }
+				: params
 
-				const result = yield* Effect.tryPromise({
-					try: () => state.client.send(method, commandParams),
-					catch: (error) => new CDPCommandError({
-						message: `CDP command ${method} failed`,
-						command: method,
-						cause: error
-					})
-				})
-
-				yield* Effect.logDebug(`CDP command ${method} succeeded`)
-
-				return {
-					result: result as T,
-					sessionId
-				}
-			} catch (error) {
-				yield* Effect.fail(new CDPCommandError({
-					message: `CDP command execution failed`,
+			const result = yield* Effect.tryPromise({
+				try: () => state.client.send(method, commandParams),
+				catch: (error) => new CDPCommandError({
+					message: `CDP command ${method} failed`,
 					command: method,
 					cause: error
-				}))
+				})
+			})
+
+			yield* Effect.logDebug(`CDP command ${method} succeeded`)
+
+			return {
+				result: result as T,
+				sessionId
 			}
 		}).pipe(
 			Effect.retry(
