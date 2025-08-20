@@ -4,9 +4,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { Effect, Layer } from 'effect'
-import { BrowserUse, BrowserUseLive, AppConfigService } from '../src/browser'
+import { BrowserUse, BrowserService, BrowserServiceLive, AppConfigService, type BrowserUseInterface } from '../src/browser'
 import { createMockCDPClientLive, CommonMockResponses, TestCDPConfigLive } from './cdp-mock'
-import type { AppConfig } from '../src/config'
+import type { AppConfig, BrowserConfig } from '../src/config'
 
 // Test configuration
 const testConfig: AppConfig = {
@@ -37,10 +37,34 @@ const MockCDPClientLive = createMockCDPClientLive([
 	CommonMockResponses.screenshot
 ])
 
-// BrowserUseLive internally uses BrowserServiceLive which needs both AppConfigService and CDPClient
-// So we need to provide all dependencies for the full chain
-const AllDepsLive = Layer.mergeAll(TestConfigLive, MockCDPClientLive, TestCDPConfigLive)
-const TestLive = BrowserUseLive.pipe(Layer.provide(AllDepsLive))
+// Create layers with proper dependency resolution using Layer.provide pattern
+const ConfigLayer = Layer.succeed(AppConfigService, testConfig)
+const CDPConfigLayer = TestCDPConfigLive
+const CDPLayer = MockCDPClientLive
+
+// Provide CDP dependencies first
+const CDPWithConfig = Layer.provide(CDPLayer, CDPConfigLayer)
+
+// Provide all dependencies to BrowserServiceLive
+const BrowserServiceWithDeps = Layer.provide(
+	BrowserServiceLive, 
+	Layer.mergeAll(ConfigLayer, CDPWithConfig)
+)
+
+// BrowserUse layer
+const TestBrowserUseLive = Layer.effect(
+	BrowserUse,
+	Effect.gen(function* () {
+		const browserService = yield* BrowserService
+		
+		const service: BrowserUseInterface = {
+			create: (config?: Partial<BrowserConfig>) => browserService.createSession(config)
+		}
+		return service
+	})
+)
+
+const TestLive = Layer.provide(TestBrowserUseLive, BrowserServiceWithDeps)
 
 describe('Epic 1.1: Project Foundation', () => {
 	it('should create BrowserUse instance successfully', async () => {
