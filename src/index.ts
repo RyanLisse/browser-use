@@ -4,6 +4,7 @@
  */
 
 export * from './browser'
+export * from './cdp'
 export * from './config'
 export * from './logging'
 export { type BrowserUseError } from './errors'

@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { Effect, Layer } from 'effect'
 import { BrowserUse, BrowserUseLive, AppConfigService } from '../src/browser'
+import { createMockCDPClientLive, CommonMockResponses, TestCDPConfigLive } from './cdp-mock'
 import type { AppConfig } from '../src/config'
 
 // Test configuration
@@ -27,7 +28,19 @@ const testConfig: AppConfig = {
 // Test configuration layer
 const TestConfigLive = Layer.succeed(AppConfigService, testConfig)
 
-const TestLive = Layer.provide(BrowserUseLive, TestConfigLive)
+// Enhanced test layer with CDP mocks for backward compatibility
+// Provide all dependencies that BrowserUseLive needs
+const MockCDPClientLive = createMockCDPClientLive([
+	CommonMockResponses.runtimeEnable,
+	CommonMockResponses.pageEnable,
+	CommonMockResponses.navigate,
+	CommonMockResponses.screenshot
+])
+
+// BrowserUseLive internally uses BrowserServiceLive which needs both AppConfigService and CDPClient
+// So we need to provide all dependencies for the full chain
+const AllDepsLive = Layer.mergeAll(TestConfigLive, MockCDPClientLive, TestCDPConfigLive)
+const TestLive = BrowserUseLive.pipe(Layer.provide(AllDepsLive))
 
 describe('Epic 1.1: Project Foundation', () => {
 	it('should create BrowserUse instance successfully', async () => {
